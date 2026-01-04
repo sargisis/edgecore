@@ -1,0 +1,10 @@
+{
+    "backends": [
+        "http://localhost:8081",
+        "http://localhost:8082",
+        "http://localhost:8083"
+    ],
+    "port": 8080,
+    "rate_limit": 100,
+    "burst": 20
+}

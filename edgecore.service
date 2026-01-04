@@ -1,0 +1,20 @@
+[Unit]
+Description=EdgeCore Load Balancer
+After=network.target
+
+[Service]
+Type=simple
+User=edgecore
+Group=edgecore
+WorkingDirectory=/opt/edgecore
+ExecStart=/usr/local/bin/edgecore
+ExecReload=/bin/kill -HUP $MAINPID
+Restart=on-failure
+RestartSec=5s
+
+# Security hardening
+NoNewPrivileges=true
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target

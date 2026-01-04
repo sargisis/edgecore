@@ -1,0 +1,44 @@
+# Binaries
+edgecore
+*.exe
+*.dll
+*.so
+*.dylib
+*.test
+
+# Go build artifacts
+*.out
+vendor/
+dist/
+
+# Configuration (keep template, ignore local overrides)
+config.json.local
+*.env
+.env.local
+
+# Logs
+*.log
+logs/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# OS
+Thumbs.db
+.DS_Store
+.AppleDouble
+.LSOverride
+
+# Temporary files
+tmp/
+temp/
+*.tmp
+
+# Test coverage
+*.cover
+coverage.html

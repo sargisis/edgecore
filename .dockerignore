@@ -1,0 +1,14 @@
+# Binaries
+edgecore
+*.exe
+*.test
+
+# Development
+.git
+.gitignore
+*.md
+tools/
+
+# IDE
+.vscode/
+.idea/
