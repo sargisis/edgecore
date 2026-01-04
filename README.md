@@ -18,19 +18,19 @@ EdgeCore automatically distributes traffic across your backend servers, protects
 **Option A: Download Pre-built Binary** _(coming soon)_
 ```bash
 # Linux/Mac
-curl -L https://github.com/username/edgecore/releases/latest/download/edgecore -o edgecore
+curl -L https://github.com/sargisis/edgecore/releases/latest/download/edgecore -o edgecore
 chmod +x edgecore
 sudo mv edgecore /usr/local/bin/
 ```
 
 **Option B: Install via Go**
 ```bash
-go install github.com/username/edgecore/cmd/edgecore@latest
+go install github.com/sargisis/edgecore/cmd/edgecore@latest
 ```
 
 **Option C: Build from Source**
 ```bash
-git clone https://github.com/username/edgecore
+git clone https://github.com/sargisis/edgecore
 cd edgecore
 go install ./cmd/edgecore
 ```
