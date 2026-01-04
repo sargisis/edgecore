@@ -1,0 +1,79 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    name: Create Release
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.21'
+
+      - name: Build binaries
+        run: |
+          # Linux AMD64
+          GOOS=linux GOARCH=amd64 go build -o edgecore-linux-amd64 ./cmd/edgecore
+          
+          # Linux ARM64
+          GOOS=linux GOARCH=arm64 go build -o edgecore-linux-arm64 ./cmd/edgecore
+          
+          # macOS AMD64
+          GOOS=darwin GOARCH=amd64 go build -o edgecore-darwin-amd64 ./cmd/edgecore
+          
+          # macOS ARM64 (M1/M2)
+          GOOS=darwin GOARCH=arm64 go build -o edgecore-darwin-arm64 ./cmd/edgecore
+          
+          # Windows AMD64
+          GOOS=windows GOARCH=amd64 go build -o edgecore-windows-amd64.exe ./cmd/edgecore
+
+      - name: Create Release
+        uses: softprops/action-gh-release@v1
+        with:
+          files: |
+            edgecore-linux-amd64
+            edgecore-linux-arm64
+            edgecore-darwin-amd64
+            edgecore-darwin-arm64
+            edgecore-windows-amd64.exe
+          body: |
+            ## EdgeCore ${{ github.ref_name }}
+            
+            High-Performance HTTP Load Balancer
+            
+            ### Installation
+            
+            **Linux (AMD64):**
+            ```bash
+            curl -L https://github.com/sargisis/edgecore/releases/download/${{ github.ref_name }}/edgecore-linux-amd64 -o edgecore
+            chmod +x edgecore
+            sudo mv edgecore /usr/local/bin/
+            ```
+            
+            **macOS (Intel):**
+            ```bash
+            curl -L https://github.com/sargisis/edgecore/releases/download/${{ github.ref_name }}/edgecore-darwin-amd64 -o edgecore
+            chmod +x edgecore
+            sudo mv edgecore /usr/local/bin/
+            ```
+            
+            **macOS (M1/M2):**
+            ```bash
+            curl -L https://github.com/sargisis/edgecore/releases/download/${{ github.ref_name }}/edgecore-darwin-arm64 -o edgecore
+            chmod +x edgecore
+            sudo mv edgecore /usr/local/bin/
+            ```
+            
+            ### What's New
+            See [README.md](https://github.com/sargisis/edgecore/blob/main/README.md) for full documentation.
