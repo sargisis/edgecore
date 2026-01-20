@@ -1,7 +1,9 @@
 package proxy
 
 import (
-	"log"
+	"crypto/rand"
+	"encoding/hex"
+	"fmt"
 	"net"
 	"net/http"
 	"strings"
@@ -18,16 +20,102 @@ type Metrics struct {
 
 var GlobalMetrics Metrics
 
-// Logger is a middleware to log requests
+// Latency histogram buckets (in seconds) and counters for request duration.
+var (
+	latencyBuckets = []float64{
+		0.005, 0.01, 0.025, 0.05, 0.1,
+		0.25, 0.5, 1.0, 2.5, 5.0,
+	}
+	// latencyCounts holds counts for each bucket plus one extra for +Inf.
+	latencyCounts = make([]uint64, len(latencyBuckets)+1)
+	// latencySumMicros accumulates total request duration in microseconds.
+	latencySumMicros uint64
+)
+
+// recordLatency updates the latency histogram for a given duration.
+func recordLatency(d time.Duration) {
+	seconds := d.Seconds()
+
+	// Sum in microseconds to avoid float atomics.
+	micros := uint64(d / time.Microsecond)
+	atomic.AddUint64(&latencySumMicros, micros)
+
+	// Find appropriate bucket.
+	idx := len(latencyBuckets) // default is +Inf bucket
+	for i, bound := range latencyBuckets {
+		if seconds <= bound {
+			idx = i
+			break
+		}
+	}
+	atomic.AddUint64(&latencyCounts[idx], 1)
+}
+
+// generateRequestID creates a short random ID for request tracking.
+func generateRequestID() string {
+	b := make([]byte, 8)
+	if _, err := rand.Read(b); err != nil {
+		// Fallback to timestamp-based ID if crypto/rand fails
+		return fmt.Sprintf("%x", time.Now().UnixNano())
+	}
+	return hex.EncodeToString(b)
+}
+
+// Logger is a middleware to log requests with structured logging and request IDs.
 func Logger(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		start := time.Now()
 		atomic.AddUint64(&GlobalMetrics.TotalRequests, 1)
 
-		next.ServeHTTP(w, r)
+		// Generate request ID and add it to response header
+		requestID := generateRequestID()
+		if r.Header.Get("X-Request-ID") == "" {
+			r.Header.Set("X-Request-ID", requestID)
+		} else {
+			requestID = r.Header.Get("X-Request-ID")
+		}
+		w.Header().Set("X-Request-ID", requestID)
 
-		log.Printf("[%s] %s %s took %v", r.RemoteAddr, r.Method, r.URL.Path, time.Since(start))
+		// Wrap response writer to capture status code
+		rw := &responseWriter{ResponseWriter: w, statusCode: http.StatusOK}
+
+		next.ServeHTTP(rw, r)
+
+		dur := time.Since(start)
+		recordLatency(dur)
+
+		// Extract client IP
+		clientIP := clientIP(r)
+
+		// Extract backend URL if available
+		backendURL := r.Header.Get("X-Backend-URL")
+
+		// Log structured entry
+		entry := LogEntry{
+			Level:     "info",
+			Method:    r.Method,
+			Path:      r.URL.Path,
+			Status:    rw.statusCode,
+			Duration:  dur.Seconds(),
+			ClientIP:  clientIP,
+			RequestID: requestID,
+		}
+		if backendURL != "" {
+			entry.Backend = backendURL
+		}
+		logEntry(entry)
 	})
+}
+
+// responseWriter wraps http.ResponseWriter to capture status code.
+type responseWriter struct {
+	http.ResponseWriter
+	statusCode int
+}
+
+func (rw *responseWriter) WriteHeader(code int) {
+	rw.statusCode = code
+	rw.ResponseWriter.WriteHeader(code)
 }
 
 // RateLimitMiddleware applies a global rate limit to all requests.

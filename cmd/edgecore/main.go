@@ -27,12 +27,15 @@ var (
 	ipRateLimiter *proxy.IPRateLimiter
 	devMode       = flag.Bool("dev", false, "Start test backends automatically")
 	configPath    *string
+	logFormat     *string
 	shutdownChan  = make(chan struct{})
 )
 
 func lbHandler(w http.ResponseWriter, r *http.Request) {
 	peer := serverPool.GetLeastConnections()
 	if peer != nil {
+		// Store backend URL in request context for logging
+		r.Header.Set("X-Backend-URL", peer.URL.String())
 		peer.IncConnections()
 		defer peer.DecConnections()
 		peer.ReverseProxy.ServeHTTP(w, r)
@@ -82,7 +85,22 @@ func main() {
 	}
 	configPath = flag.String("config", defaultConfigPath, "Path to configuration file")
 
+	// Log format: json or pretty (default: pretty for dev, json for prod)
+	logFormatEnv := os.Getenv("EDGECORE_LOG_FORMAT")
+	defaultLogFormat := "pretty"
+	if logFormatEnv != "" {
+		defaultLogFormat = logFormatEnv
+	}
+	logFormat = flag.String("log-format", defaultLogFormat, "Log format: json or pretty")
+
 	flag.Parse()
+
+	// Set log format
+	if *logFormat == "json" {
+		proxy.SetLogFormat(proxy.LogFormatJSON)
+	} else {
+		proxy.SetLogFormat(proxy.LogFormatPretty)
+	}
 
 	// ASCII Banner
 	pterm.DefaultHeader.WithFullWidth().
