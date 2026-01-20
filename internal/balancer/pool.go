@@ -1,13 +1,14 @@
 package balancer
 
 import (
-	"edgecore/internal/backend"
 	"log"
 	"net"
 	"net/url"
 	"sync"
 	"sync/atomic"
 	"time"
+
+	"github.com/sargisis/edgecore/internal/backend"
 )
 
 // ServerPool holds information about reachable backends

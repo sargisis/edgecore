@@ -2,13 +2,9 @@ package main
 
 import (
 	"context"
-	"edgecore/internal/backend"
-	"edgecore/internal/balancer"
-	"edgecore/internal/config"
-	"edgecore/internal/devtools"
-	"edgecore/internal/proxy"
 	"flag"
 	"fmt"
+	"math/rand"
 	"net/http"
 	"net/http/httputil"
 	"net/url"
@@ -18,12 +14,20 @@ import (
 	"time"
 
 	"github.com/pterm/pterm"
+
+	"github.com/sargisis/edgecore/internal/backend"
+	"github.com/sargisis/edgecore/internal/balancer"
+	"github.com/sargisis/edgecore/internal/config"
+	"github.com/sargisis/edgecore/internal/devtools"
+	"github.com/sargisis/edgecore/internal/proxy"
 )
 
 var (
-	serverPool  balancer.ServerPool
-	rateLimiter *proxy.RateLimiter
-	devMode     = flag.Bool("dev", false, "Start test backends automatically")
+	serverPool   balancer.ServerPool
+	rateLimiter  *proxy.RateLimiter
+	devMode      = flag.Bool("dev", false, "Start test backends automatically")
+	configPath   *string
+	shutdownChan = make(chan struct{})
 )
 
 func lbHandler(w http.ResponseWriter, r *http.Request) {
@@ -70,6 +74,14 @@ func loadConfig(cfg *config.Config) {
 }
 
 func main() {
+	// Allow overriding config path via environment variable with CLI flag taking precedence.
+	cfgEnv := os.Getenv("EDGECORE_CONFIG")
+	defaultConfigPath := "config.json"
+	if cfgEnv != "" {
+		defaultConfigPath = cfgEnv
+	}
+	configPath = flag.String("config", defaultConfigPath, "Path to configuration file")
+
 	flag.Parse()
 
 	// ASCII Banner
@@ -94,9 +106,13 @@ func main() {
 	}
 
 	// 2. Load Config
-	cfg, err := config.LoadConfig("config.json")
+	cfg, err := config.LoadConfig(*configPath)
 	if err != nil {
 		pterm.Fatal.Printf("Failed to load config: %v\n", err)
+	}
+
+	if err := cfg.Validate(); err != nil {
+		pterm.Fatal.Printf("Invalid config: %v\n", err)
 	}
 
 	loadConfig(cfg)
@@ -108,24 +124,43 @@ func main() {
 
 	go func() {
 		for sig := range sigs {
-			if sig == syscall.SIGHUP {
+			switch sig {
+			case syscall.SIGHUP:
 				pterm.Info.Println("📡 Received SIGHUP, reloading configuration...")
-				newCfg, err := config.LoadConfig("config.json")
-				if err == nil {
-					loadConfig(newCfg)
+				newCfg, err := config.LoadConfig(*configPath)
+				if err != nil {
+					pterm.Error.Printf("Failed to reload config: %v\n", err)
+					continue
 				}
-			} else {
+				if err := newCfg.Validate(); err != nil {
+					pterm.Error.Printf("Reloaded config is invalid: %v\n", err)
+					continue
+				}
+				loadConfig(newCfg)
+			case syscall.SIGINT, syscall.SIGTERM:
 				pterm.Warning.Println("🛑 Shutting down gracefully...")
+				close(shutdownChan)
 				return
 			}
 		}
 	}()
 
-	// 4. Start Health Check loop
+	// 4. Start Health Check loop with graceful stop and slight jitter
 	go func() {
+		// Add small random jitter before starting health checks to avoid thundering herd
+		jitter := time.Duration(rand.Intn(5000)) * time.Millisecond
+		time.Sleep(jitter)
+
 		t := time.NewTicker(time.Second * 30)
-		for range t.C {
-			serverPool.HealthCheck()
+		defer t.Stop()
+
+		for {
+			select {
+			case <-t.C:
+				serverPool.HealthCheck()
+			case <-shutdownChan:
+				return
+			}
 		}
 	}()
 
@@ -143,8 +178,12 @@ func main() {
 	})
 
 	server := &http.Server{
-		Addr:    fmt.Sprintf(":%d", cfg.Port),
-		Handler: mux,
+		Addr:              fmt.Sprintf(":%d", cfg.Port),
+		Handler:           mux,
+		ReadTimeout:       15 * time.Second,
+		WriteTimeout:      15 * time.Second,
+		IdleTimeout:       60 * time.Second,
+		ReadHeaderTimeout: 5 * time.Second,
 	}
 
 	pterm.Println()
@@ -159,16 +198,14 @@ func main() {
 	}
 	pterm.Println()
 
-	// Graceful shutdown with context
 	go func() {
 		if err := server.ListenAndServe(); err != http.ErrServerClosed {
 			pterm.Fatal.Printf("Server error: %v\n", err)
 		}
 	}()
 
-	// Wait for interrupt signal
-	<-sigs
-	pterm.Warning.Println("🛑 Shutting down gracefully...")
+	// Wait for shutdown signal
+	<-shutdownChan
 
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
