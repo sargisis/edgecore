@@ -23,11 +23,11 @@ import (
 )
 
 var (
-	serverPool   balancer.ServerPool
-	rateLimiter  *proxy.RateLimiter
-	devMode      = flag.Bool("dev", false, "Start test backends automatically")
-	configPath   *string
-	shutdownChan = make(chan struct{})
+	serverPool    balancer.ServerPool
+	ipRateLimiter *proxy.IPRateLimiter
+	devMode       = flag.Bool("dev", false, "Start test backends automatically")
+	configPath    *string
+	shutdownChan  = make(chan struct{})
 )
 
 func lbHandler(w http.ResponseWriter, r *http.Request) {
@@ -116,7 +116,7 @@ func main() {
 	}
 
 	loadConfig(cfg)
-	rateLimiter = proxy.NewRateLimiter(cfg.RateLimit, cfg.Burst)
+	ipRateLimiter = proxy.NewIPRateLimiter(cfg.RateLimit, cfg.Burst)
 
 	// 3. Setup Signal Handling for Hot-reload + Graceful Shutdown
 	sigs := make(chan os.Signal, 1)
@@ -166,7 +166,7 @@ func main() {
 
 	// 5. Setup Middleware Chain
 	handler := http.HandlerFunc(lbHandler)
-	finalHandler := proxy.Logger(proxy.RateLimitMiddleware(rateLimiter, handler))
+	finalHandler := proxy.Logger(proxy.IPRateLimitMiddleware(ipRateLimiter, handler))
 
 	// 6. Setup HTTP Server with Metrics endpoint
 	mux := http.NewServeMux()
